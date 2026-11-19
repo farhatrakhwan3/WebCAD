@@ -187,7 +187,7 @@
       <div id="pane-2d" class="relative flex-1 w-full md:w-auto h-1/2 md:h-full overflow-hidden border-b md:border-b-0 md:border-r border-cad-border min-h-0 min-w-0">
         <canvas id="canvas-2d" class="w-full h-full block"></canvas>
         <div class="absolute top-2 left-2 pointer-events-none text-[10px] font-mono bg-cad-ribbon/90 border border-cad-border px-2 py-0.5 rounded text-[#63bdf1]">
-          2D PLAN &bull; Click shape to select &bull; Click &amp; type number + Enter to draw
+          2D PLAN &bull; Click line/shape to select &bull; Click &amp; type number + Enter to draw
         </div>
 
         <!-- Dynamic Numeric Input Pill -->
@@ -287,7 +287,7 @@
     </div>
 
     <div id="status-hint" class="hidden md:block text-cad-muted truncate">
-      Select tool to pick/drag shapes, or pick a draw tool, click, type a number (e.g. 120), and press Enter.
+      Select tool to click/drag lines &amp; shapes, or pick Line/Rect/Circle, click, type a number, and press Enter.
     </div>
 
     <div class="flex items-center gap-2 shrink-0">
@@ -318,7 +318,9 @@
         this.panStart = { x: 0, y: 0 };
 
         this.draggingShapeId = null;
-        this.dragOffset = { x: 0, y: 0, x2Off: 0, y2Off: 0 };
+        this.dragMoved = false;
+        this.dragStartWorld = { x: 0, y: 0 };
+        this.dragInitialShape = null;
 
         this.startPt = null;
         this.mouseWorld = { x: 0, y: 0 };
@@ -496,12 +498,11 @@
         document.getElementById('btn-' + flag).classList.toggle('active', this.flags[flag]);
       }
 
-      screenToWorld(clientX, clientY, snapOverride = null) {
+      screenToWorld(clientX, clientY, shouldSnap = false) {
         const rect = this.canvas.getBoundingClientRect();
         let x = (clientX - rect.left - this.pan.x) / this.zoom;
         let y = -(clientY - rect.top - this.pan.y) / this.zoom;
-        const shouldSnap = snapOverride !== null ? snapOverride : this.flags.snap;
-        if (shouldSnap) {
+        if (shouldSnap && this.flags.snap) {
           x = Math.round(x / this.gridSize) * this.gridSize;
           y = Math.round(y / this.gridSize) * this.gridSize;
         }
@@ -517,6 +518,8 @@
       }
 
       onCanvasDown(e) {
+        if (e.target !== this.canvas) return;
+
         if (this.tool === 'pan' || e.button === 1) {
           this.isPanning = true;
           this.panStart = { x: e.clientX - this.pan.x, y: e.clientY - this.pan.y };
@@ -524,7 +527,7 @@
         }
 
         const rawPt = this.screenToWorld(e.clientX, e.clientY, false);
-        const pt = this.screenToWorld(e.clientX, e.clientY);
+        const snappedPt = this.screenToWorld(e.clientX, e.clientY, true);
 
         if (this.tool === 'select') {
           const hit = this.hitTest(rawPt.x, rawPt.y);
@@ -533,20 +536,10 @@
 
           if (hit) {
             const s = this.getSelected();
-            this.saveHistory();
             this.draggingShapeId = hit;
-            if (s.type === 'line') {
-              this.dragOffset = {
-                x: rawPt.x - s.x1,
-                y: rawPt.y - s.y1,
-                x2Off: rawPt.x - s.x2,
-                y2Off: rawPt.y - s.y2
-              };
-            } else if (s.x !== undefined) {
-              this.dragOffset = { x: rawPt.x - s.x, y: rawPt.y - s.y, x2Off: 0, y2Off: 0 };
-            } else if (s.cx !== undefined) {
-              this.dragOffset = { x: rawPt.x - s.cx, y: rawPt.y - s.cy, x2Off: 0, y2Off: 0 };
-            }
+            this.dragMoved = false;
+            this.dragStartWorld = { x: rawPt.x, y: rawPt.y };
+            this.dragInitialShape = JSON.parse(JSON.stringify(s));
           }
           return;
         }
@@ -564,11 +557,11 @@
         }
 
         if (!this.startPt) {
-          this.startPt = pt;
+          this.startPt = snappedPt;
           this.typedNumber = '';
           this.updateNumHud();
         } else {
-          const endPt = this.applyOrtho(this.startPt, pt);
+          const endPt = this.applyOrtho(this.startPt, snappedPt);
           this.commitShape(this.startPt, endPt);
           this.startPt = null;
           this.typedNumber = '';
@@ -578,7 +571,7 @@
 
       onCanvasMove(e) {
         const raw = this.screenToWorld(e.clientX, e.clientY, false);
-        const snapped = this.screenToWorld(e.clientX, e.clientY);
+        const snapped = this.screenToWorld(e.clientX, e.clientY, true);
         this.mouseWorld = this.flags.ortho && this.startPt ? this.applyOrtho(this.startPt, snapped) : snapped;
         document.getElementById('coord-readout').textContent =
           `X: ${this.mouseWorld.x.toFixed(1)}, Y: ${this.mouseWorld.y.toFixed(1)}`;
@@ -589,24 +582,34 @@
           return;
         }
 
-        if (this.draggingShapeId) {
+        if (this.draggingShapeId && this.dragInitialShape) {
+          let dx = raw.x - this.dragStartWorld.x;
+          let dy = raw.y - this.dragStartWorld.y;
+          if (Math.hypot(dx, dy) > 1.5 / this.zoom && !this.dragMoved) {
+            this.saveHistory();
+            this.dragMoved = true;
+          }
+          if (!this.dragMoved) return;
+
+          if (this.flags.snap) {
+            dx = Math.round(dx / this.gridSize) * this.gridSize;
+            dy = Math.round(dy / this.gridSize) * this.gridSize;
+          }
+
           const s = this.shapes.find(item => item.id === this.draggingShapeId);
-          if (s) {
-            const targetX = this.flags.snap ? Math.round(raw.x / this.gridSize) * this.gridSize : raw.x;
-            const targetY = this.flags.snap ? Math.round(raw.y / this.gridSize) * this.gridSize : raw.y;
+          const init = this.dragInitialShape;
+          if (s && init) {
             if (s.type === 'line') {
-              const dx = targetX - this.dragOffset.x - s.x1;
-              const dy = targetY - this.dragOffset.y - s.y1;
-              s.x1 += dx;
-              s.y1 += dy;
-              s.x2 += dx;
-              s.y2 += dy;
+              s.x1 = init.x1 + dx;
+              s.y1 = init.y1 + dy;
+              s.x2 = init.x2 + dx;
+              s.y2 = init.y2 + dy;
             } else if (s.x !== undefined) {
-              s.x = targetX - this.dragOffset.x;
-              s.y = targetY - this.dragOffset.y;
+              s.x = init.x + dx;
+              s.y = init.y + dy;
             } else if (s.cx !== undefined) {
-              s.cx = targetX - this.dragOffset.x;
-              s.cy = targetY - this.dragOffset.y;
+              s.cx = init.cx + dx;
+              s.cy = init.cy + dy;
             }
             this.sync3D();
           }
@@ -616,6 +619,8 @@
       onCanvasUp() {
         this.isPanning = false;
         this.draggingShapeId = null;
+        this.dragMoved = false;
+        this.dragInitialShape = null;
       }
 
       onWheel(e) {
@@ -676,7 +681,7 @@
         }
 
         if (!this.startPt) {
-          const map = { l: 'line', r: 'rect', c: 'circle' };
+          const map = { l: 'line', r: 'rect', c: 'circle', s: 'select' };
           if (map[e.key.toLowerCase()]) this.setTool(map[e.key.toLowerCase()]);
         }
       }
@@ -697,407 +702,4 @@
           ? (Math.abs(cursorPt.x - p0.x) >= Math.abs(cursorPt.y - p0.y) ? (cursorPt.x >= p0.x ? 0 : Math.PI) : (cursorPt.y >= p0.y ? Math.PI / 2 : -Math.PI / 2))
           : Math.atan2(cursorPt.y - p0.y, cursorPt.x - p0.x);
 
-        if (this.tool === 'line') {
-          const end = {
-            x: p0.x + Math.cos(angle) * num,
-            y: p0.y + Math.sin(angle) * num
-          };
-          this.commitShape(p0, end);
-        } else if (this.tool === 'rect' || this.tool === 'box3d') {
-          const end = { x: p0.x + num, y: p0.y + num };
-          this.commitShape(p0, end, this.tool === 'box3d' ? num : 0);
-        } else if (this.tool === 'circle' || this.tool === 'cylinder3d' || this.tool === 'sphere3d') {
-          const end = { x: p0.x + num, y: p0.y };
-          this.commitShape(p0, end, this.tool === 'cylinder3d' ? num * 1.5 : 0);
-        }
-      }
-
-      commitShape(p0, p1, forcedZ = null) {
-        this.saveHistory();
-        const id = 's_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
-        const base = {
-          id,
-          color: '#63bdf1',
-          lineStyle: 'solid',
-          lineWidth: 2,
-          rotation: 0
-        };
-
-        let shape = null;
-        if (this.tool === 'line') {
-          shape = { ...base, type: 'line', x1: p0.x, y1: p0.y, x2: p1.x, y2: p1.y, zHeight: 0 };
-        } else if (this.tool === 'rect' || this.tool === 'box3d') {
-          const x = Math.min(p0.x, p1.x);
-          const y = Math.min(p0.y, p1.y);
-          const w = Math.max(10, Math.abs(p1.x - p0.x));
-          const h = Math.max(10, Math.abs(p1.y - p0.y));
-          shape = {
-            ...base,
-            type: this.tool === 'box3d' ? 'box3d' : 'rect',
-            x, y, w, h,
-            zHeight: forcedZ !== null ? forcedZ : (this.tool === 'box3d' ? 40 : 0)
-          };
-        } else if (this.tool === 'circle' || this.tool === 'cylinder3d' || this.tool === 'sphere3d') {
-          const r = Math.max(8, Math.hypot(p1.x - p0.x, p1.y - p0.y));
-          const type3d = this.tool === 'cylinder3d' ? 'cylinder3d' : (this.tool === 'sphere3d' ? 'sphere3d' : 'circle');
-          shape = {
-            ...base,
-            type: type3d,
-            cx: p0.x, cy: p0.y, r,
-            zHeight: forcedZ !== null ? forcedZ : (type3d === 'cylinder3d' ? 50 : 0)
-          };
-        }
-
-        if (shape) {
-          this.shapes.push(shape);
-          this.selectedId = shape.id;
-          this.updateInspectorLabel();
-          this.sync3D();
-        }
-      }
-
-      hitTest(x, y) {
-        const tol = 8 / this.zoom;
-        for (let i = this.shapes.length - 1; i >= 0; i--) {
-          const s = this.shapes[i];
-          if (s.type === 'rect' || s.type === 'box3d') {
-            if (x >= s.x - tol && x <= s.x + s.w + tol && y >= s.y - tol && y <= s.y + s.h + tol) {
-              return s.id;
-            }
-          } else if (s.type === 'circle' || s.type === 'cylinder3d' || s.type === 'sphere3d') {
-            if (Math.hypot(x - s.cx, y - s.cy) <= s.r + tol) {
-              return s.id;
-            }
-          } else if (s.type === 'line') {
-            const dx = s.x2 - s.x1, dy = s.y2 - s.y1;
-            const lenSq = dx * dx + dy * dy || 1;
-            const t = Math.max(0, Math.min(1, ((x - s.x1) * dx + (y - s.y1) * dy) / lenSq));
-            const px = s.x1 + t * dx, py = s.y1 + t * dy;
-            if (Math.hypot(x - px, y - py) <= tol + 2) {
-              return s.id;
-            }
-          }
-        }
-        return null;
-      }
-
-      getSelected() {
-        return this.shapes.find(s => s.id === this.selectedId) || null;
-      }
-
-      updateInspectorLabel() {
-        const sel = this.getSelected();
-        document.getElementById('sel-label').textContent = sel ? sel.type.toUpperCase() : 'None';
-      }
-
-      saveHistory() {
-        this.history.push(JSON.stringify(this.shapes));
-        if (this.history.length > 40) this.history.shift();
-        this.redoStack = [];
-      }
-
-      undo() {
-        if (!this.history.length) return;
-        this.redoStack.push(JSON.stringify(this.shapes));
-        this.shapes = JSON.parse(this.history.pop());
-        if (this.selectedId && !this.getSelected()) this.selectedId = null;
-        this.updateInspectorLabel();
-        this.sync3D();
-      }
-
-      redo() {
-        if (!this.redoStack.length) return;
-        this.history.push(JSON.stringify(this.shapes));
-        this.shapes = JSON.parse(this.redoStack.pop());
-        this.updateInspectorLabel();
-        this.sync3D();
-      }
-
-      moveSel(dx, dy) {
-        const s = this.getSelected();
-        if (!s) return;
-        this.saveHistory();
-        if (s.type === 'line') { s.x1 += dx; s.y1 += dy; s.x2 += dx; s.y2 += dy; }
-        else if (s.x !== undefined) { s.x += dx; s.y += dy; }
-        else if (s.cx !== undefined) { s.cx += dx; s.cy += dy; }
-        this.sync3D();
-      }
-
-      rotateSel(deg) {
-        const s = this.getSelected();
-        if (!s) return;
-        this.saveHistory();
-        s.rotation = ((s.rotation || 0) + deg) % 360;
-        if (s.type === 'line') {
-          const cx = (s.x1 + s.x2) / 2, cy = (s.y1 + s.y2) / 2;
-          const rad = (deg * Math.PI) / 180;
-          const rotPt = (px, py) => ({
-            x: cx + (px - cx) * Math.cos(rad) - (py - cy) * Math.sin(rad),
-            y: cy + (px - cx) * Math.sin(rad) + (py - cy) * Math.cos(rad)
-          });
-          const p1 = rotPt(s.x1, s.y1), p2 = rotPt(s.x2, s.y2);
-          s.x1 = p1.x; s.y1 = p1.y; s.x2 = p2.x; s.y2 = p2.y;
-        }
-        this.sync3D();
-      }
-
-      scaleSel(factor) {
-        const s = this.getSelected();
-        if (!s) return;
-        this.saveHistory();
-        if (s.w !== undefined) { s.w *= factor; s.h *= factor; }
-        if (s.r !== undefined) { s.r *= factor; }
-        if (s.zHeight) { s.zHeight *= factor; }
-        this.sync3D();
-      }
-
-      extrudeSel(dz, flat = false) {
-        const s = this.getSelected();
-        if (!s) return;
-        this.saveHistory();
-        s.zHeight = flat ? 0 : Math.max(0, (s.zHeight || 0) + dz);
-        this.sync3D();
-      }
-
-      stepSize(delta) {
-        const s = this.getSelected();
-        if (!s) return;
-        this.saveHistory();
-        if (s.w !== undefined) { s.w = Math.max(10, s.w + delta); s.h = Math.max(10, s.h + delta); }
-        if (s.r !== undefined) { s.r = Math.max(8, s.r + delta); }
-        this.sync3D();
-      }
-
-      duplicateSel() {
-        const s = this.getSelected();
-        if (!s) return;
-        this.saveHistory();
-        const copy = JSON.parse(JSON.stringify(s));
-        copy.id = 's_' + Date.now();
-        if (copy.type === 'line') { copy.x1 += 20; copy.y1 += 20; copy.x2 += 20; copy.y2 += 20; }
-        else if (copy.x !== undefined) { copy.x += 20; copy.y += 20; }
-        else if (copy.cx !== undefined) { copy.cx += 20; copy.cy += 20; }
-        this.shapes.push(copy);
-        this.selectedId = copy.id;
-        this.updateInspectorLabel();
-        this.sync3D();
-      }
-
-      deleteSel() {
-        if (!this.selectedId) return;
-        this.saveHistory();
-        this.shapes = this.shapes.filter(s => s.id !== this.selectedId);
-        this.selectedId = null;
-        this.updateInspectorLabel();
-        this.sync3D();
-      }
-
-      setLineStyle(style) {
-        ['solid', 'dashed', 'dotted'].forEach(st => {
-          document.getElementById('style-' + st).classList.toggle('active', st === style);
-        });
-        const s = this.getSelected();
-        if (!s) return;
-        this.saveHistory();
-        s.lineStyle = style;
-      }
-
-      setLineWidth(w) {
-        const s = this.getSelected();
-        if (!s) return;
-        this.saveHistory();
-        s.lineWidth = w;
-      }
-
-      setColor(hex) {
-        const s = this.getSelected();
-        if (!s) return;
-        this.saveHistory();
-        s.color = hex;
-        this.sync3D();
-      }
-
-      newDrawing() {
-        this.saveHistory();
-        this.shapes = [];
-        this.selectedId = null;
-        this.updateInspectorLabel();
-        this.sync3D();
-      }
-
-      fitView() {
-        const r = document.getElementById('pane-2d').getBoundingClientRect();
-        this.pan.x = r.width / 2;
-        this.pan.y = r.height / 2;
-        this.zoom = 1;
-        document.getElementById('zoom-readout').textContent = '100%';
-        this.setCameraView('iso');
-      }
-
-      loadSample() {
-        this.shapes = [
-          { id: 'ex1', type: 'box3d', x: -80, y: -60, w: 160, h: 120, zHeight: 60, color: '#63bdf1', lineStyle: 'solid', lineWidth: 2, rotation: 0 },
-          { id: 'ex2', type: 'cylinder3d', cx: 0, cy: 0, r: 28, zHeight: 90, color: '#34d399', lineStyle: 'solid', lineWidth: 2, rotation: 0 }
-        ];
-        this.selectedId = 'ex1';
-        this.updateInspectorLabel();
-        this.sync3D();
-      }
-
-      sync3D() {
-        if (!this.meshGroup) return;
-        while (this.meshGroup.children.length > 0) {
-          this.meshGroup.remove(this.meshGroup.children[0]);
-        }
-
-        this.shapes.forEach(s => {
-          const isSel = s.id === this.selectedId;
-          const mat = new THREE.MeshStandardMaterial({
-            color: s.color || '#63bdf1',
-            roughness: 0.4,
-            metalness: 0.15,
-            emissive: isSel ? 0x1e3a5f : 0x000000
-          });
-
-          if (s.type === 'box3d' || (s.type === 'rect' && s.zHeight > 0)) {
-            const h = Math.max(4, s.zHeight || 20);
-            const geo = new THREE.BoxGeometry(s.w, s.h, h);
-            const mesh = new THREE.Mesh(geo, mat);
-            mesh.position.set(s.x + s.w / 2, s.y + s.h / 2, h / 2);
-            mesh.rotation.z = ((s.rotation || 0) * Math.PI) / 180;
-            this.meshGroup.add(mesh);
-          } else if (s.type === 'cylinder3d' || (s.type === 'circle' && s.zHeight > 0)) {
-            const h = Math.max(4, s.zHeight || 30);
-            const geo = new THREE.CylinderGeometry(s.r, s.r, h, 28);
-            geo.rotateX(Math.PI / 2);
-            const mesh = new THREE.Mesh(geo, mat);
-            mesh.position.set(s.cx, s.cy, h / 2);
-            this.meshGroup.add(mesh);
-          } else if (s.type === 'sphere3d') {
-            const geo = new THREE.SphereGeometry(s.r, 24, 24);
-            const mesh = new THREE.Mesh(geo, mat);
-            mesh.position.set(s.cx, s.cy, s.r);
-            this.meshGroup.add(mesh);
-          }
-        });
-      }
-
-      draw2D() {
-        const rect = document.getElementById('pane-2d').getBoundingClientRect();
-        const w = rect.width, h = rect.height;
-        const ctx = this.ctx;
-        ctx.clearRect(0, 0, w, h);
-
-        ctx.save();
-        ctx.translate(this.pan.x, this.pan.y);
-        ctx.scale(this.zoom, -this.zoom);
-
-        if (this.flags.grid) {
-          const step = this.gridSize;
-          const minX = Math.floor((-this.pan.x / this.zoom) / step) * step - step;
-          const maxX = Math.ceil(((w - this.pan.x) / this.zoom) / step) * step + step;
-          const minY = Math.floor((-(h - this.pan.y) / this.zoom) / step) * step - step;
-          const maxY = Math.ceil((this.pan.y / this.zoom) / step) * step + step;
-
-          ctx.strokeStyle = '#18212b';
-          ctx.lineWidth = 1 / this.zoom;
-          ctx.beginPath();
-          for (let x = minX; x <= maxX; x += step) {
-            ctx.moveTo(x, minY);
-            ctx.lineTo(x, maxY);
-          }
-          for (let y = minY; y <= maxY; y += step) {
-            ctx.moveTo(minX, y);
-            ctx.lineTo(maxX, y);
-          }
-          ctx.stroke();
-        }
-
-        // Axes
-        ctx.strokeStyle = '#2b3b4e';
-        ctx.lineWidth = 1.2 / this.zoom;
-        ctx.beginPath();
-        ctx.moveTo(-4000, 0); ctx.lineTo(4000, 0);
-        ctx.moveTo(0, -4000); ctx.lineTo(0, 4000);
-        ctx.stroke();
-
-        // Draw shapes
-        this.shapes.forEach(s => {
-          const isSel = s.id === this.selectedId;
-          ctx.strokeStyle = isSel ? '#ffffff' : (s.color || '#63bdf1');
-          ctx.lineWidth = ((s.lineWidth || 2) + (isSel ? 1 : 0)) / this.zoom;
-          if (s.lineStyle === 'dashed') ctx.setLineDash([8 / this.zoom, 5 / this.zoom]);
-          else if (s.lineStyle === 'dotted') ctx.setLineDash([2 / this.zoom, 4 / this.zoom]);
-          else ctx.setLineDash([]);
-
-          ctx.beginPath();
-          if (s.type === 'line') {
-            ctx.moveTo(s.x1, s.y1);
-            ctx.lineTo(s.x2, s.y2);
-          } else if (s.type === 'rect' || s.type === 'box3d') {
-            ctx.rect(s.x, s.y, s.w, s.h);
-          } else if (s.type === 'circle' || s.type === 'cylinder3d' || s.type === 'sphere3d') {
-            ctx.arc(s.cx, s.cy, s.r, 0, Math.PI * 2);
-          }
-          ctx.stroke();
-
-          // Selection highlight box
-          if (isSel) {
-            ctx.save();
-            ctx.setLineDash([4 / this.zoom, 3 / this.zoom]);
-            ctx.strokeStyle = '#63bdf1';
-            ctx.lineWidth = 1.2 / this.zoom;
-            if (s.type === 'rect' || s.type === 'box3d') {
-              ctx.strokeRect(s.x - 4, s.y - 4, s.w + 8, s.h + 8);
-            } else if (s.type === 'circle' || s.type === 'cylinder3d' || s.type === 'sphere3d') {
-              ctx.strokeRect(s.cx - s.r - 4, s.cy - s.r - 4, (s.r + 4) * 2, (s.r + 4) * 2);
-            } else if (s.type === 'line') {
-              const minX = Math.min(s.x1, s.x2) - 4;
-              const minY = Math.min(s.y1, s.y2) - 4;
-              const bw = Math.abs(s.x2 - s.x1) + 8;
-              const bh = Math.abs(s.y2 - s.y1) + 8;
-              ctx.strokeRect(minX, minY, bw, bh);
-            }
-            ctx.restore();
-          }
-        });
-
-        // Live preview while drawing
-        if (this.startPt) {
-          ctx.setLineDash([5 / this.zoom, 4 / this.zoom]);
-          ctx.strokeStyle = '#63bdf1';
-          ctx.lineWidth = 1.5 / this.zoom;
-          ctx.beginPath();
-          if (this.tool === 'line') {
-            ctx.moveTo(this.startPt.x, this.startPt.y);
-            ctx.lineTo(this.mouseWorld.x, this.mouseWorld.y);
-          } else if (this.tool === 'rect' || this.tool === 'box3d') {
-            ctx.rect(
-              Math.min(this.startPt.x, this.mouseWorld.x),
-              Math.min(this.startPt.y, this.mouseWorld.y),
-              Math.abs(this.mouseWorld.x - this.startPt.x),
-              Math.abs(this.mouseWorld.y - this.startPt.y)
-            );
-          } else if (this.tool === 'circle' || this.tool === 'cylinder3d' || this.tool === 'sphere3d') {
-            const r = Math.hypot(this.mouseWorld.x - this.startPt.x, this.mouseWorld.y - this.startPt.y);
-            ctx.arc(this.startPt.x, this.startPt.y, r, 0, Math.PI * 2);
-          }
-          ctx.stroke();
-        }
-
-        ctx.restore();
-      }
-
-      loop() {
-        this.draw2D();
-        if (this.renderer && this.scene && this.camera) {
-          this.renderer.render(this.scene, this.camera);
-        }
-        requestAnimationFrame(() => this.loop());
-      }
-    }
-
-    const cad = new WebCADApp();
-  </script>
-</body>
-</html>
+        if (this.tool === '
