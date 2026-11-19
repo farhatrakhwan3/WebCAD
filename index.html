@@ -1,0 +1,1018 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WebCAD Studio — Responsive 2D & 3D CAD</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20,400,0,0" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            cad: {
+              bg: '#0f1419',
+              panel: '#141b22',
+              ribbon: '#171e26',
+              border: '#232d38',
+              hover: '#1e2732',
+              accent: '#63bdf1',
+              text: '#e2e8f0',
+              muted: '#8b9bb0',
+            }
+          }
+        }
+      }
+    };
+  </script>
+  <style>
+    * { box-sizing: border-box; user-select: none; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #0f1419;
+      color: #e2e8f0;
+    }
+    input, select { user-select: text; }
+
+    .material-symbols-outlined {
+      font-size: 18px;
+      line-height: 1;
+      vertical-align: middle;
+    }
+    .icon-sm { font-size: 15px !important; }
+
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: #0f1419; }
+    ::-webkit-scrollbar-thumb { background: #263240; border-radius: 3px; }
+
+    .tool-btn { transition: all 0.12s ease; }
+    .tool-btn:hover { background-color: #1e2732; }
+    .tool-btn.active {
+      background-color: rgba(99, 189, 241, 0.2);
+      border-color: #63bdf1;
+      color: #63bdf1;
+    }
+
+    .toggle-btn { transition: all 0.12s ease; }
+    .toggle-btn.active {
+      background-color: rgba(99, 189, 241, 0.2);
+      border-color: #63bdf1;
+      color: #63bdf1;
+    }
+
+    .prop-btn {
+      background-color: #171e26;
+      border: 1px solid #232d38;
+      border-radius: 5px;
+      padding: 6px 6px;
+      font-size: 11px;
+      font-weight: 500;
+      color: #cbd5e1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      transition: all 0.12s ease;
+    }
+    .prop-btn:hover {
+      background-color: #1e2732;
+      border-color: #63bdf1;
+      color: #ffffff;
+    }
+    .prop-btn.active {
+      background-color: rgba(99, 189, 241, 0.18);
+      border-color: #63bdf1;
+      color: #63bdf1;
+    }
+  </style>
+</head>
+<body class="flex flex-col h-screen w-screen overflow-hidden bg-cad-bg text-cad-text font-sans">
+
+  <!-- TOP HEADER -->
+  <header class="h-11 bg-cad-ribbon border-b border-cad-border flex items-center justify-between px-2 sm:px-3 shrink-0 z-30 gap-2">
+    <div class="flex items-center gap-1.5 min-w-0">
+      <div class="flex items-center gap-1.5 px-2 py-1 rounded bg-[#63bdf1]/15 border border-[#63bdf1]/40 text-[#63bdf1] font-bold text-xs sm:text-sm shrink-0">
+        <span class="material-symbols-outlined icon-sm">architecture</span>
+        <span>WebCAD</span>
+        <span class="hidden sm:inline text-[9px] font-mono bg-[#63bdf1] text-[#0f1419] px-1 rounded">2D/3D</span>
+      </div>
+
+      <button onclick="cad.newDrawing()" class="tool-btn border border-transparent px-2 py-1 rounded text-xs flex items-center gap-1 shrink-0" title="New Drawing">
+        <span class="material-symbols-outlined icon-sm text-[#63bdf1]">note_add</span>
+        <span class="hidden md:inline">New</span>
+      </button>
+
+      <button onclick="cad.undo()" class="tool-btn border border-transparent p-1.5 rounded shrink-0" title="Undo (Ctrl+Z)">
+        <span class="material-symbols-outlined icon-sm">undo</span>
+      </button>
+      <button onclick="cad.redo()" class="tool-btn border border-transparent p-1.5 rounded shrink-0" title="Redo (Ctrl+Y)">
+        <span class="material-symbols-outlined icon-sm">redo</span>
+      </button>
+      <button onclick="cad.fitView()" class="tool-btn border border-transparent p-1.5 rounded shrink-0" title="Fit View">
+        <span class="material-symbols-outlined icon-sm text-[#63bdf1]">fit_screen</span>
+      </button>
+    </div>
+
+    <!-- Viewport Mode Switcher -->
+    <div class="flex items-center bg-cad-bg p-0.5 rounded border border-cad-border shrink-0">
+      <button id="view-2d" onclick="cad.setViewMode('2d')" class="toggle-btn px-2 py-0.5 rounded text-[11px] font-semibold">2D</button>
+      <button id="view-split" onclick="cad.setViewMode('split')" class="toggle-btn active px-2 py-0.5 rounded text-[11px] font-semibold">Split</button>
+      <button id="view-3d" onclick="cad.setViewMode('3d')" class="toggle-btn px-2 py-0.5 rounded text-[11px] font-semibold">3D</button>
+    </div>
+
+    <div class="flex items-center gap-1 shrink-0">
+      <button onclick="cad.loadSample()" class="tool-btn border border-cad-border px-2 py-1 rounded text-[11px] text-amber-300 hidden sm:flex items-center gap-1">
+        <span class="material-symbols-outlined icon-sm text-amber-400">domain</span>
+        <span>Sample</span>
+      </button>
+      <button id="btn-inspector" onclick="cad.toggleInspector()" class="toggle-btn active border border-cad-border px-2 py-1 rounded text-[11px] flex items-center gap-1">
+        <span class="material-symbols-outlined icon-sm">tune</span>
+        <span class="hidden sm:inline">Properties</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- WORKSPACE -->
+  <div class="flex-1 flex flex-col sm:flex-row overflow-hidden min-h-0">
+
+    <!-- LEFT TOOL PALETTE -->
+    <aside class="h-11 sm:h-auto w-full sm:w-12 bg-cad-ribbon border-b sm:border-b-0 sm:border-r border-cad-border flex flex-row sm:flex-col items-center px-1.5 sm:px-0 py-1 sm:py-2 gap-1 shrink-0 overflow-x-auto sm:overflow-y-auto z-20">
+      <button data-tool="select" onclick="cad.setTool('select')" class="tool-btn active border border-transparent w-8 h-8 sm:w-9 sm:h-9 rounded flex items-center justify-center shrink-0" title="Select (Esc)">
+        <span class="material-symbols-outlined icon-sm">near_me</span>
+      </button>
+      <button data-tool="pan" onclick="cad.setTool('pan')" class="tool-btn border border-transparent w-8 h-8 sm:w-9 sm:h-9 rounded flex items-center justify-center shrink-0" title="Pan">
+        <span class="material-symbols-outlined icon-sm">pan_tool</span>
+      </button>
+      <div class="w-px h-5 sm:w-6 sm:h-px bg-cad-border mx-0.5 sm:my-0.5 shrink-0"></div>
+      <button data-tool="line" onclick="cad.setTool('line')" class="tool-btn border border-transparent w-8 h-8 sm:w-9 sm:h-9 rounded flex items-center justify-center shrink-0" title="Line (L) — Click start, type length, press Enter">
+        <span class="material-symbols-outlined icon-sm">pen_size_2</span>
+      </button>
+      <button data-tool="rect" onclick="cad.setTool('rect')" class="tool-btn border border-transparent w-8 h-8 sm:w-9 sm:h-9 rounded flex items-center justify-center shrink-0" title="Rectangle (R) — Click start, type size, press Enter">
+        <span class="material-symbols-outlined icon-sm">crop_square</span>
+      </button>
+      <button data-tool="circle" onclick="cad.setTool('circle')" class="tool-btn border border-transparent w-8 h-8 sm:w-9 sm:h-9 rounded flex items-center justify-center shrink-0" title="Circle (C) — Click center, type radius, press Enter">
+        <span class="material-symbols-outlined icon-sm">radio_button_unchecked</span>
+      </button>
+      <div class="w-px h-5 sm:w-6 sm:h-px bg-cad-border mx-0.5 sm:my-0.5 shrink-0"></div>
+      <button data-tool="box3d" onclick="cad.setTool('box3d')" class="tool-btn border border-transparent w-8 h-8 sm:w-9 sm:h-9 rounded flex items-center justify-center text-[#63bdf1] shrink-0" title="3D Box — Click base, type size, press Enter">
+        <span class="material-symbols-outlined icon-sm">deployed_code</span>
+      </button>
+      <button data-tool="cylinder3d" onclick="cad.setTool('cylinder3d')" class="tool-btn border border-transparent w-8 h-8 sm:w-9 sm:h-9 rounded flex items-center justify-center text-[#63bdf1] shrink-0" title="3D Cylinder — Click center, type radius, press Enter">
+        <span class="material-symbols-outlined icon-sm">database</span>
+      </button>
+      <button data-tool="sphere3d" onclick="cad.setTool('sphere3d')" class="tool-btn border border-transparent w-8 h-8 sm:w-9 sm:h-9 rounded flex items-center justify-center text-[#63bdf1] shrink-0" title="3D Sphere — Click center, type radius, press Enter">
+        <span class="material-symbols-outlined icon-sm">language</span>
+      </button>
+      <button data-tool="erase" onclick="cad.setTool('erase')" class="tool-btn border border-transparent w-8 h-8 sm:w-9 sm:h-9 rounded flex items-center justify-center text-red-400 shrink-0" title="Erase (Del)">
+        <span class="material-symbols-outlined icon-sm">ink_eraser</span>
+      </button>
+    </aside>
+
+    <!-- VIEWPORTS -->
+    <div id="viewports-area" class="flex-1 flex flex-col md:flex-row overflow-hidden relative min-h-0 min-w-0">
+      <!-- 2D Canvas -->
+      <div id="pane-2d" class="relative flex-1 w-full md:w-auto h-1/2 md:h-full overflow-hidden border-b md:border-b-0 md:border-r border-cad-border min-h-0 min-w-0">
+        <canvas id="canvas-2d" class="w-full h-full block"></canvas>
+        <div class="absolute top-2 left-2 pointer-events-none text-[10px] font-mono bg-cad-ribbon/90 border border-cad-border px-2 py-0.5 rounded text-[#63bdf1]">
+          2D PLAN &bull; Click &amp; type number + Enter
+        </div>
+
+        <!-- Dynamic Numeric Input Pill -->
+        <div id="num-hud" class="hidden absolute top-2 right-2 bg-[#0f1419]/95 border border-[#63bdf1] rounded px-2.5 py-1 shadow-lg flex items-center gap-1.5 z-20">
+          <span class="text-[10px] font-mono text-cad-muted">VALUE:</span>
+          <span id="num-hud-val" class="text-xs font-mono font-bold text-[#63bdf1]"></span>
+          <span class="text-[10px] font-mono text-emerald-400">ENTER</span>
+        </div>
+      </div>
+
+      <!-- 3D Three.js Viewport -->
+      <div id="pane-3d" class="relative flex-1 w-full md:w-auto h-1/2 md:h-full overflow-hidden bg-[#0b0f14] min-h-0 min-w-0">
+        <div id="canvas-3d" class="w-full h-full"></div>
+        <div class="absolute top-2 left-2 pointer-events-none text-[10px] font-mono bg-cad-ribbon/90 border border-cad-border px-2 py-0.5 rounded text-emerald-400">
+          3D MODEL &bull; Drag to Orbit &bull; Scroll to Zoom
+        </div>
+        <div class="absolute top-2 right-2 flex items-center bg-cad-ribbon/90 border border-cad-border rounded p-0.5 gap-0.5 z-10">
+          <button onclick="cad.setCameraView('iso')" class="px-1.5 py-0.5 text-[10px] font-mono rounded hover:bg-cad-hover text-[#63bdf1]">ISO</button>
+          <button onclick="cad.setCameraView('top')" class="px-1.5 py-0.5 text-[10px] font-mono rounded hover:bg-cad-hover">TOP</button>
+          <button onclick="cad.setCameraView('front')" class="px-1.5 py-0.5 text-[10px] font-mono rounded hover:bg-cad-hover">FRONT</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- BUTTON-HEAVY PROPERTIES PANEL -->
+    <aside id="inspector-panel" class="w-full sm:w-72 bg-cad-panel border-t sm:border-t-0 sm:border-l border-cad-border flex flex-col shrink-0 max-h-64 sm:max-h-none overflow-y-auto p-2.5 space-y-3 z-20">
+      <div class="flex items-center justify-between bg-cad-ribbon border border-cad-border px-2.5 py-1.5 rounded">
+        <span class="text-[11px] font-semibold uppercase text-cad-muted">Properties</span>
+        <span id="sel-label" class="text-[11px] font-mono font-bold text-[#63bdf1]">None</span>
+      </div>
+
+      <!-- Transform Buttons -->
+      <div class="space-y-1.5">
+        <div class="text-[10px] font-bold uppercase tracking-wider text-cad-muted">Transform</div>
+        <div class="grid grid-cols-3 gap-1">
+          <button onclick="cad.moveSel(-20, 0)" class="prop-btn"><span class="material-symbols-outlined icon-sm">west</span>-20 X</button>
+          <button onclick="cad.moveSel(0, 20)" class="prop-btn"><span class="material-symbols-outlined icon-sm">north</span>+20 Y</button>
+          <button onclick="cad.moveSel(20, 0)" class="prop-btn"><span class="material-symbols-outlined icon-sm">east</span>+20 X</button>
+          <button onclick="cad.rotateSel(15)" class="prop-btn"><span class="material-symbols-outlined icon-sm">rotate_right</span>+15°</button>
+          <button onclick="cad.rotateSel(45)" class="prop-btn"><span class="material-symbols-outlined icon-sm">rotate_right</span>+45°</button>
+          <button onclick="cad.rotateSel(90)" class="prop-btn"><span class="material-symbols-outlined icon-sm">rotate_90_degrees_cw</span>+90°</button>
+          <button onclick="cad.scaleSel(0.8)" class="prop-btn"><span class="material-symbols-outlined icon-sm">compress</span>0.8x</button>
+          <button onclick="cad.scaleSel(1.25)" class="prop-btn"><span class="material-symbols-outlined icon-sm">expand</span>1.25x</button>
+          <button onclick="cad.duplicateSel()" class="prop-btn"><span class="material-symbols-outlined icon-sm text-emerald-400">content_copy</span>Clone</button>
+        </div>
+      </div>
+
+      <!-- 3D Extrusion & Size Buttons -->
+      <div class="space-y-1.5 pt-2 border-t border-cad-border">
+        <div class="text-[10px] font-bold uppercase tracking-wider text-[#63bdf1]">3D &amp; Dimensions</div>
+        <div class="grid grid-cols-3 gap-1">
+          <button onclick="cad.extrudeSel(20)" class="prop-btn"><span class="material-symbols-outlined icon-sm text-[#63bdf1]">vertical_align_top</span>+20 Z</button>
+          <button onclick="cad.extrudeSel(-20)" class="prop-btn"><span class="material-symbols-outlined icon-sm text-[#63bdf1]">vertical_align_bottom</span>-20 Z</button>
+          <button onclick="cad.extrudeSel(0, true)" class="prop-btn">Flat Z=0</button>
+          <button onclick="cad.stepSize(-10)" class="prop-btn">-10 Size</button>
+          <button onclick="cad.stepSize(10)" class="prop-btn">+10 Size</button>
+          <button onclick="cad.deleteSel()" class="prop-btn hover:!border-red-500 hover:!text-red-400"><span class="material-symbols-outlined icon-sm text-red-400">delete</span>Delete</button>
+        </div>
+      </div>
+
+      <!-- Line Style & Weight Buttons -->
+      <div class="space-y-1.5 pt-2 border-t border-cad-border">
+        <div class="text-[10px] font-bold uppercase tracking-wider text-cad-muted">Line Style &amp; Weight</div>
+        <div class="grid grid-cols-3 gap-1">
+          <button id="style-solid" onclick="cad.setLineStyle('solid')" class="prop-btn active">Solid</button>
+          <button id="style-dashed" onclick="cad.setLineStyle('dashed')" class="prop-btn">Dashed</button>
+          <button id="style-dotted" onclick="cad.setLineStyle('dotted')" class="prop-btn">Dotted</button>
+          <button onclick="cad.setLineWidth(1.5)" class="prop-btn">Thin</button>
+          <button onclick="cad.setLineWidth(3)" class="prop-btn">Medium</button>
+          <button onclick="cad.setLineWidth(5)" class="prop-btn">Bold</button>
+        </div>
+      </div>
+
+      <!-- Color Swatch Buttons -->
+      <div class="space-y-1.5 pt-2 border-t border-cad-border">
+        <div class="text-[10px] font-bold uppercase tracking-wider text-cad-muted">Color</div>
+        <div class="grid grid-cols-6 gap-1.5" id="color-swatches"></div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- FOOTER WITH GRID, SNAP, AND ORTHO TOGGLES -->
+  <footer class="h-10 bg-cad-ribbon border-t border-cad-border px-2 sm:px-3 flex items-center justify-between gap-2 shrink-0 z-30 text-[11px] font-mono">
+    <div class="flex items-center gap-1">
+      <button id="btn-grid" onclick="cad.toggleFlag('grid')" class="toggle-btn active border border-cad-border px-2 py-0.5 rounded flex items-center gap-1" title="Toggle Grid">
+        <span class="material-symbols-outlined icon-sm">grid_on</span>
+        <span>Grid</span>
+      </button>
+      <button id="btn-snap" onclick="cad.toggleFlag('snap')" class="toggle-btn active border border-cad-border px-2 py-0.5 rounded flex items-center gap-1" title="Snap to Grid">
+        <span class="material-symbols-outlined icon-sm">grid_4x4</span>
+        <span>Snap</span>
+      </button>
+      <button id="btn-ortho" onclick="cad.toggleFlag('ortho')" class="toggle-btn border border-cad-border px-2 py-0.5 rounded flex items-center gap-1" title="Ortho Lock (0° / 90°)">
+        <span class="material-symbols-outlined icon-sm">orthogonality</span>
+        <span>Ortho</span>
+      </button>
+    </div>
+
+    <div id="status-hint" class="hidden md:block text-cad-muted truncate">
+      Select a tool, click in 2D, type a number (e.g. 120), and press Enter.
+    </div>
+
+    <div class="flex items-center gap-2 shrink-0">
+      <span id="coord-readout" class="text-[#63bdf1]">X: 0.0, Y: 0.0</span>
+      <span id="zoom-readout" class="text-cad-muted">100%</span>
+    </div>
+  </footer>
+
+  <script>
+    const COLORS = ['#63bdf1', '#34d399', '#fbbf24', '#f87171', '#c084fc', '#e2e8f0'];
+
+    class WebCADApp {
+      constructor() {
+        this.canvas = document.getElementById('canvas-2d');
+        this.ctx = this.canvas.getContext('2d');
+
+        this.tool = 'select';
+        this.shapes = [];
+        this.selectedId = null;
+        this.history = [];
+        this.redoStack = [];
+
+        this.flags = { grid: true, snap: true, ortho: false };
+        this.gridSize = 20;
+        this.pan = { x: 0, y: 0 };
+        this.zoom = 1;
+        this.isPanning = false;
+        this.panStart = { x: 0, y: 0 };
+
+        this.startPt = null;
+        this.mouseWorld = { x: 0, y: 0 };
+        this.typedNumber = '';
+
+        this.initSwatches();
+        this.initThree();
+        this.bindEvents();
+        this.loadSample();
+        this.resize();
+        this.loop();
+      }
+
+      initSwatches() {
+        const container = document.getElementById('color-swatches');
+        COLORS.forEach(hex => {
+          const btn = document.createElement('button');
+          btn.className = 'w-full h-6 rounded border border-white/20 hover:scale-105 transition';
+          btn.style.backgroundColor = hex;
+          btn.title = hex;
+          btn.onclick = () => this.setColor(hex);
+          container.appendChild(btn);
+        });
+      }
+
+      initThree() {
+        const container = document.getElementById('canvas-3d');
+        this.scene = new THREE.Scene();
+        this.scene.background = new THREE.Color('#0b0f14');
+
+        this.camera = new THREE.PerspectiveCamera(45, 1, 1, 5000);
+        this.setCameraView('iso');
+
+        this.renderer = new THREE.WebGLRenderer({ antialias: true });
+        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+        container.appendChild(this.renderer.domElement);
+
+        const ambient = new THREE.AmbientLight(0xffffff, 0.65);
+        this.scene.add(ambient);
+
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.85);
+        dirLight.position.set(250, 400, 300);
+        this.scene.add(dirLight);
+
+        const gridHelper = new THREE.GridHelper(600, 30, 0x2a394a, 0x18212b);
+        gridHelper.rotation.x = Math.PI / 2;
+        this.scene.add(gridHelper);
+
+        this.meshGroup = new THREE.Group();
+        this.scene.add(this.meshGroup);
+
+        // Simple 3D orbit/pan via pointer events on Three canvas
+        let orbiting = false;
+        let lastX = 0, lastY = 0;
+        let theta = Math.PI / 4, phi = Math.PI / 3, radius = 420;
+        const target = new THREE.Vector3(0, 0, 20);
+
+        const updateCam = () => {
+          this.camera.position.x = target.x + radius * Math.sin(phi) * Math.cos(theta);
+          this.camera.position.y = target.y + radius * Math.sin(phi) * Math.sin(theta);
+          this.camera.position.z = target.z + radius * Math.cos(phi);
+          this.camera.lookAt(target);
+        };
+        this.updateThreeCamera = updateCam;
+        updateCam();
+
+        const dom = this.renderer.domElement;
+        dom.addEventListener('pointerdown', e => {
+          orbiting = true;
+          lastX = e.clientX;
+          lastY = e.clientY;
+        });
+        window.addEventListener('pointerup', () => { orbiting = false; });
+        window.addEventListener('pointermove', e => {
+          if (!orbiting) return;
+          const dx = e.clientX - lastX;
+          const dy = e.clientY - lastY;
+          lastX = e.clientX;
+          lastY = e.clientY;
+          theta -= dx * 0.008;
+          phi = Math.max(0.15, Math.min(Math.PI - 0.15, phi - dy * 0.008));
+          updateCam();
+        });
+        dom.addEventListener('wheel', e => {
+          e.preventDefault();
+          radius = Math.max(80, Math.min(1400, radius + e.deltaY * 0.35));
+          updateCam();
+        }, { passive: false });
+      }
+
+      setCameraView(mode) {
+        if (!this.camera) return;
+        if (mode === 'top') this.camera.position.set(0, 0, 420);
+        else if (mode === 'front') this.camera.position.set(0, -420, 120);
+        else this.camera.position.set(280, -280, 240);
+        this.camera.lookAt(0, 0, 20);
+      }
+
+      bindEvents() {
+        window.addEventListener('resize', () => this.resize());
+
+        this.canvas.addEventListener('pointerdown', e => this.onCanvasDown(e));
+        window.addEventListener('pointermove', e => this.onCanvasMove(e));
+        window.addEventListener('pointerup', () => this.onCanvasUp());
+        this.canvas.addEventListener('wheel', e => this.onWheel(e), { passive: false });
+
+        window.addEventListener('keydown', e => this.onKeyDown(e));
+      }
+
+      resize() {
+        const pane2d = document.getElementById('pane-2d');
+        if (pane2d) {
+          const r = pane2d.getBoundingClientRect();
+          const dpr = Math.min(window.devicePixelRatio || 1, 2);
+          this.canvas.width = Math.max(1, Math.floor(r.width * dpr));
+          this.canvas.height = Math.max(1, Math.floor(r.height * dpr));
+          this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+          if (!this._centeredOnce && r.width > 0 && r.height > 0) {
+            this.pan.x = r.width / 2;
+            this.pan.y = r.height / 2;
+            this._centeredOnce = true;
+          }
+        }
+
+        const pane3d = document.getElementById('pane-3d');
+        if (pane3d && this.renderer) {
+          const r3 = pane3d.getBoundingClientRect();
+          if (r3.width > 0 && r3.height > 0) {
+            this.camera.aspect = r3.width / r3.height;
+            this.camera.updateProjectionMatrix();
+            this.renderer.setSize(r3.width, r3.height);
+          }
+        }
+      }
+
+      setViewMode(mode) {
+        const p2d = document.getElementById('pane-2d');
+        const p3d = document.getElementById('pane-3d');
+        ['2d', 'split', '3d'].forEach(m => {
+          document.getElementById('view-' + m).classList.toggle('active', m === mode);
+        });
+        if (mode === '2d') {
+          p2d.classList.remove('hidden');
+          p3d.classList.add('hidden');
+        } else if (mode === '3d') {
+          p2d.classList.add('hidden');
+          p3d.classList.remove('hidden');
+        } else {
+          p2d.classList.remove('hidden');
+          p3d.classList.remove('hidden');
+        }
+        setTimeout(() => this.resize(), 10);
+      }
+
+      toggleInspector() {
+        const panel = document.getElementById('inspector-panel');
+        const btn = document.getElementById('btn-inspector');
+        panel.classList.toggle('hidden');
+        btn.classList.toggle('active', !panel.classList.contains('hidden'));
+        setTimeout(() => this.resize(), 10);
+      }
+
+      setTool(tool) {
+        this.tool = tool;
+        this.startPt = null;
+        this.typedNumber = '';
+        this.updateNumHud();
+        document.querySelectorAll('[data-tool]').forEach(btn => {
+          btn.classList.toggle('active', btn.dataset.tool === tool);
+        });
+      }
+
+      toggleFlag(flag) {
+        this.flags[flag] = !this.flags[flag];
+        document.getElementById('btn-' + flag).classList.toggle('active', this.flags[flag]);
+      }
+
+      screenToWorld(clientX, clientY) {
+        const rect = this.canvas.getBoundingClientRect();
+        let x = (clientX - rect.left - this.pan.x) / this.zoom;
+        let y = -(clientY - rect.top - this.pan.y) / this.zoom;
+        if (this.flags.snap) {
+          x = Math.round(x / this.gridSize) * this.gridSize;
+          y = Math.round(y / this.gridSize) * this.gridSize;
+        }
+        return { x, y };
+      }
+
+      applyOrtho(p0, p1) {
+        if (!this.flags.ortho || !p0) return p1;
+        const dx = p1.x - p0.x;
+        const dy = p1.y - p0.y;
+        if (Math.abs(dx) >= Math.abs(dy)) return { x: p1.x, y: p0.y };
+        return { x: p0.x, y: p1.y };
+      }
+
+      onCanvasDown(e) {
+        const pt = this.screenToWorld(e.clientX, e.clientY);
+        if (this.tool === 'pan' || e.button === 1) {
+          this.isPanning = true;
+          this.panStart = { x: e.clientX - this.pan.x, y: e.clientY - this.pan.y };
+          return;
+        }
+
+        if (this.tool === 'select') {
+          this.selectedId = this.hitTest(pt.x, pt.y);
+          this.updateInspectorLabel();
+          return;
+        }
+
+        if (this.tool === 'erase') {
+          const hit = this.hitTest(pt.x, pt.y);
+          if (hit) {
+            this.saveHistory();
+            this.shapes = this.shapes.filter(s => s.id !== hit);
+            if (this.selectedId === hit) this.selectedId = null;
+            this.updateInspectorLabel();
+            this.sync3D();
+          }
+          return;
+        }
+
+        if (!this.startPt) {
+          this.startPt = pt;
+          this.typedNumber = '';
+          this.updateNumHud();
+        } else {
+          const endPt = this.applyOrtho(this.startPt, pt);
+          this.commitShape(this.startPt, endPt);
+          this.startPt = null;
+          this.typedNumber = '';
+          this.updateNumHud();
+        }
+      }
+
+      onCanvasMove(e) {
+        const raw = this.screenToWorld(e.clientX, e.clientY);
+        this.mouseWorld = this.flags.ortho && this.startPt ? this.applyOrtho(this.startPt, raw) : raw;
+        document.getElementById('coord-readout').textContent =
+          `X: ${this.mouseWorld.x.toFixed(1)}, Y: ${this.mouseWorld.y.toFixed(1)}`;
+
+        if (this.isPanning) {
+          this.pan.x = e.clientX - this.panStart.x;
+          this.pan.y = e.clientY - this.panStart.y;
+        }
+      }
+
+      onCanvasUp() {
+        this.isPanning = false;
+      }
+
+      onWheel(e) {
+        e.preventDefault();
+        const factor = e.deltaY < 0 ? 1.12 : 0.89;
+        this.zoom = Math.max(0.25, Math.min(5, this.zoom * factor));
+        document.getElementById('zoom-readout').textContent = Math.round(this.zoom * 100) + '%';
+      }
+
+      onKeyDown(e) {
+        if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
+
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+          e.preventDefault();
+          return this.undo();
+        }
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+          e.preventDefault();
+          return this.redo();
+        }
+        if (e.key === 'Escape') {
+          this.startPt = null;
+          this.typedNumber = '';
+          this.updateNumHud();
+          this.setTool('select');
+          return;
+        }
+        if (e.key === 'Delete' || e.key === 'Backspace') {
+          if (this.typedNumber.length > 0 && this.startPt) {
+            e.preventDefault();
+            this.typedNumber = this.typedNumber.slice(0, -1);
+            this.updateNumHud();
+            return;
+          }
+          if (this.selectedId) {
+            this.deleteSel();
+            return;
+          }
+        }
+
+        // Direct numeric input while drawing after clicking start point
+        if (this.startPt && /^[0-9.]$/.test(e.key)) {
+          e.preventDefault();
+          this.typedNumber += e.key;
+          this.updateNumHud();
+          return;
+        }
+
+        if (this.startPt && e.key === 'Enter' && this.typedNumber) {
+          e.preventDefault();
+          const val = parseFloat(this.typedNumber);
+          if (!isNaN(val) && val > 0) {
+            this.commitFromNumeric(this.startPt, this.mouseWorld, val);
+          }
+          this.startPt = null;
+          this.typedNumber = '';
+          this.updateNumHud();
+          return;
+        }
+
+        // Quick tool shortcuts when not typing a number
+        if (!this.startPt) {
+          const map = { l: 'line', r: 'rect', c: 'circle' };
+          if (map[e.key.toLowerCase()]) this.setTool(map[e.key.toLowerCase()]);
+        }
+      }
+
+      updateNumHud() {
+        const hud = document.getElementById('num-hud');
+        const valEl = document.getElementById('num-hud-val');
+        if (this.startPt && this.typedNumber) {
+          hud.classList.remove('hidden');
+          valEl.textContent = this.typedNumber;
+        } else {
+          hud.classList.add('hidden');
+        }
+      }
+
+      commitFromNumeric(p0, cursorPt, num) {
+        const angle = Math.atan2(cursorPt.y - p0.y, cursorPt.x - p0.x);
+        if (this.tool === 'line') {
+          const end = {
+            x: p0.x + Math.cos(angle) * num,
+            y: p0.y + Math.sin(angle) * num
+          };
+          this.commitShape(p0, end);
+        } else if (this.tool === 'rect' || this.tool === 'box3d') {
+          const end = { x: p0.x + num, y: p0.y + num };
+          this.commitShape(p0, end, this.tool === 'box3d' ? num : 0);
+        } else if (this.tool === 'circle' || this.tool === 'cylinder3d' || this.tool === 'sphere3d') {
+          const end = { x: p0.x + num, y: p0.y };
+          this.commitShape(p0, end, this.tool === 'cylinder3d' ? num * 1.5 : 0);
+        }
+      }
+
+      commitShape(p0, p1, forcedZ = null) {
+        this.saveHistory();
+        const id = 's_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+        const base = {
+          id,
+          color: '#63bdf1',
+          lineStyle: 'solid',
+          lineWidth: 2,
+          rotation: 0
+        };
+
+        let shape = null;
+        if (this.tool === 'line') {
+          shape = { ...base, type: 'line', x1: p0.x, y1: p0.y, x2: p1.x, y2: p1.y, zHeight: 0 };
+        } else if (this.tool === 'rect' || this.tool === 'box3d') {
+          const x = Math.min(p0.x, p1.x);
+          const y = Math.min(p0.y, p1.y);
+          const w = Math.max(10, Math.abs(p1.x - p0.x));
+          const h = Math.max(10, Math.abs(p1.y - p0.y));
+          shape = {
+            ...base,
+            type: this.tool === 'box3d' ? 'box3d' : 'rect',
+            x, y, w, h,
+            zHeight: forcedZ !== null ? forcedZ : (this.tool === 'box3d' ? 40 : 0)
+          };
+        } else if (this.tool === 'circle' || this.tool === 'cylinder3d' || this.tool === 'sphere3d') {
+          const r = Math.max(8, Math.hypot(p1.x - p0.x, p1.y - p0.y));
+          const type3d = this.tool === 'cylinder3d' ? 'cylinder3d' : (this.tool === 'sphere3d' ? 'sphere3d' : 'circle');
+          shape = {
+            ...base,
+            type: type3d,
+            cx: p0.x, cy: p0.y, r,
+            zHeight: forcedZ !== null ? forcedZ : (type3d === 'cylinder3d' ? 50 : 0)
+          };
+        }
+
+        if (shape) {
+          this.shapes.push(shape);
+          this.selectedId = shape.id;
+          this.updateInspectorLabel();
+          this.sync3D();
+        }
+      }
+
+      hitTest(x, y) {
+        for (let i = this.shapes.length - 1; i >= 0; i--) {
+          const s = this.shapes[i];
+          if (s.type === 'rect' || s.type === 'box3d') {
+            if (x >= s.x && x <= s.x + s.w && y >= s.y && y <= s.y + s.h) return s.id;
+          } else if (s.type === 'circle' || s.type === 'cylinder3d' || s.type === 'sphere3d') {
+            if (Math.hypot(x - s.cx, y - s.cy) <= s.r + 6) return s.id;
+          } else if (s.type === 'line') {
+            const dx = s.x2 - s.x1, dy = s.y2 - s.y1;
+            const lenSq = dx * dx + dy * dy || 1;
+            const t = Math.max(0, Math.min(1, ((x - s.x1) * dx + (y - s.y1) * dy) / lenSq));
+            const px = s.x1 + t * dx, py = s.y1 + t * dy;
+            if (Math.hypot(x - px, y - py) <= 8) return s.id;
+          }
+        }
+        return null;
+      }
+
+      getSelected() {
+        return this.shapes.find(s => s.id === this.selectedId) || null;
+      }
+
+      updateInspectorLabel() {
+        const sel = this.getSelected();
+        document.getElementById('sel-label').textContent = sel ? sel.type.toUpperCase() : 'None';
+      }
+
+      // Inspector Actions
+      saveHistory() {
+        this.history.push(JSON.stringify(this.shapes));
+        if (this.history.length > 40) this.history.shift();
+        this.redoStack = [];
+      }
+
+      undo() {
+        if (!this.history.length) return;
+        this.redoStack.push(JSON.stringify(this.shapes));
+        this.shapes = JSON.parse(this.history.pop());
+        this.sync3D();
+      }
+
+      redo() {
+        if (!this.redoStack.length) return;
+        this.history.push(JSON.stringify(this.shapes));
+        this.shapes = JSON.parse(this.redoStack.pop());
+        this.sync3D();
+      }
+
+      moveSel(dx, dy) {
+        const s = this.getSelected();
+        if (!s) return;
+        this.saveHistory();
+        if (s.type === 'line') { s.x1 += dx; s.y1 += dy; s.x2 += dx; s.y2 += dy; }
+        else if (s.x !== undefined) { s.x += dx; s.y += dy; }
+        else if (s.cx !== undefined) { s.cx += dx; s.cy += dy; }
+        this.sync3D();
+      }
+
+      rotateSel(deg) {
+        const s = this.getSelected();
+        if (!s) return;
+        this.saveHistory();
+        s.rotation = ((s.rotation || 0) + deg) % 360;
+        if (s.type === 'line') {
+          const cx = (s.x1 + s.x2) / 2, cy = (s.y1 + s.y2) / 2;
+          const rad = (deg * Math.PI) / 180;
+          const rotPt = (px, py) => ({
+            x: cx + (px - cx) * Math.cos(rad) - (py - cy) * Math.sin(rad),
+            y: cy + (px - cx) * Math.sin(rad) + (py - cy) * Math.cos(rad)
+          });
+          const p1 = rotPt(s.x1, s.y1), p2 = rotPt(s.x2, s.y2);
+          s.x1 = p1.x; s.y1 = p1.y; s.x2 = p2.x; s.y2 = p2.y;
+        }
+        this.sync3D();
+      }
+
+      scaleSel(factor) {
+        const s = this.getSelected();
+        if (!s) return;
+        this.saveHistory();
+        if (s.w !== undefined) { s.w *= factor; s.h *= factor; }
+        if (s.r !== undefined) { s.r *= factor; }
+        if (s.zHeight) { s.zHeight *= factor; }
+        this.sync3D();
+      }
+
+      extrudeSel(dz, flat = false) {
+        const s = this.getSelected();
+        if (!s) return;
+        this.saveHistory();
+        s.zHeight = flat ? 0 : Math.max(0, (s.zHeight || 0) + dz);
+        this.sync3D();
+      }
+
+      stepSize(delta) {
+        const s = this.getSelected();
+        if (!s) return;
+        this.saveHistory();
+        if (s.w !== undefined) { s.w = Math.max(10, s.w + delta); s.h = Math.max(10, s.h + delta); }
+        if (s.r !== undefined) { s.r = Math.max(8, s.r + delta); }
+        this.sync3D();
+      }
+
+      duplicateSel() {
+        const s = this.getSelected();
+        if (!s) return;
+        this.saveHistory();
+        const copy = JSON.parse(JSON.stringify(s));
+        copy.id = 's_' + Date.now();
+        if (copy.type === 'line') { copy.x1 += 20; copy.y1 += 20; copy.x2 += 20; copy.y2 += 20; }
+        else if (copy.x !== undefined) { copy.x += 20; copy.y += 20; }
+        else if (copy.cx !== undefined) { copy.cx += 20; copy.cy += 20; }
+        this.shapes.push(copy);
+        this.selectedId = copy.id;
+        this.sync3D();
+      }
+
+      deleteSel() {
+        if (!this.selectedId) return;
+        this.saveHistory();
+        this.shapes = this.shapes.filter(s => s.id !== this.selectedId);
+        this.selectedId = null;
+        this.updateInspectorLabel();
+        this.sync3D();
+      }
+
+      setLineStyle(style) {
+        ['solid', 'dashed', 'dotted'].forEach(st => {
+          document.getElementById('style-' + st).classList.toggle('active', st === style);
+        });
+        const s = this.getSelected();
+        if (!s) return;
+        this.saveHistory();
+        s.lineStyle = style;
+      }
+
+      setLineWidth(w) {
+        const s = this.getSelected();
+        if (!s) return;
+        this.saveHistory();
+        s.lineWidth = w;
+      }
+
+      setColor(hex) {
+        const s = this.getSelected();
+        if (!s) return;
+        this.saveHistory();
+        s.color = hex;
+        this.sync3D();
+      }
+
+      newDrawing() {
+        this.saveHistory();
+        this.shapes = [];
+        this.selectedId = null;
+        this.updateInspectorLabel();
+        this.sync3D();
+      }
+
+      fitView() {
+        const r = document.getElementById('pane-2d').getBoundingClientRect();
+        this.pan.x = r.width / 2;
+        this.pan.y = r.height / 2;
+        this.zoom = 1;
+        document.getElementById('zoom-readout').textContent = '100%';
+        this.setCameraView('iso');
+      }
+
+      loadSample() {
+        this.shapes = [
+          { id: 'ex1', type: 'box3d', x: -80, y: -60, w: 160, h: 120, zHeight: 60, color: '#63bdf1', lineStyle: 'solid', lineWidth: 2, rotation: 0 },
+          { id: 'ex2', type: 'cylinder3d', cx: 0, cy: 0, r: 28, zHeight: 90, color: '#34d399', lineStyle: 'solid', lineWidth: 2, rotation: 0 }
+        ];
+        this.selectedId = 'ex1';
+        this.updateInspectorLabel();
+        this.sync3D();
+      }
+
+      sync3D() {
+        if (!this.meshGroup) return;
+        while (this.meshGroup.children.length > 0) {
+          this.meshGroup.remove(this.meshGroup.children[0]);
+        }
+
+        this.shapes.forEach(s => {
+          const mat = new THREE.MeshStandardMaterial({
+            color: s.color || '#63bdf1',
+            roughness: 0.4,
+            metalness: 0.15
+          });
+
+          if (s.type === 'box3d' || (s.type === 'rect' && s.zHeight > 0)) {
+            const h = Math.max(4, s.zHeight || 20);
+            const geo = new THREE.BoxGeometry(s.w, s.h, h);
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.position.set(s.x + s.w / 2, s.y + s.h / 2, h / 2);
+            mesh.rotation.z = ((s.rotation || 0) * Math.PI) / 180;
+            this.meshGroup.add(mesh);
+          } else if (s.type === 'cylinder3d' || (s.type === 'circle' && s.zHeight > 0)) {
+            const h = Math.max(4, s.zHeight || 30);
+            const geo = new THREE.CylinderGeometry(s.r, s.r, h, 28);
+            geo.rotateX(Math.PI / 2);
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.position.set(s.cx, s.cy, h / 2);
+            this.meshGroup.add(mesh);
+          } else if (s.type === 'sphere3d') {
+            const geo = new THREE.SphereGeometry(s.r, 24, 24);
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.position.set(s.cx, s.cy, s.r);
+            this.meshGroup.add(mesh);
+          }
+        });
+      }
+
+      draw2D() {
+        const rect = document.getElementById('pane-2d').getBoundingClientRect();
+        const w = rect.width, h = rect.height;
+        const ctx = this.ctx;
+        ctx.clearRect(0, 0, w, h);
+
+        ctx.save();
+        ctx.translate(this.pan.x, this.pan.y);
+        ctx.scale(this.zoom, -this.zoom);
+
+        if (this.flags.grid) {
+          const step = this.gridSize;
+          const minX = Math.floor((-this.pan.x / this.zoom) / step) * step - step;
+          const maxX = Math.ceil(((w - this.pan.x) / this.zoom) / step) * step + step;
+          const minY = Math.floor((-(h - this.pan.y) / this.zoom) / step) * step - step;
+          const maxY = Math.ceil((this.pan.y / this.zoom) / step) * step + step;
+
+          ctx.strokeStyle = '#18212b';
+          ctx.lineWidth = 1 / this.zoom;
+          ctx.beginPath();
+          for (let x = minX; x <= maxX; x += step) {
+            ctx.moveTo(x, minY);
+            ctx.lineTo(x, maxY);
+          }
+          for (let y = minY; y <= maxY; y += step) {
+            ctx.moveTo(minX, y);
+            ctx.lineTo(maxX, y);
+          }
+          ctx.stroke();
+        }
+
+        // Axes
+        ctx.strokeStyle = '#2b3b4e';
+        ctx.lineWidth = 1.2 / this.zoom;
+        ctx.beginPath();
+        ctx.moveTo(-4000, 0); ctx.lineTo(4000, 0);
+        ctx.moveTo(0, -4000); ctx.lineTo(0, 4000);
+        ctx.stroke();
+
+        // Draw shapes
+        this.shapes.forEach(s => {
+          const isSel = s.id === this.selectedId;
+          ctx.strokeStyle = isSel ? '#ffffff' : (s.color || '#63bdf1');
+          ctx.lineWidth = (s.lineWidth || 2) / this.zoom;
+          if (s.lineStyle === 'dashed') ctx.setLineDash([8 / this.zoom, 5 / this.zoom]);
+          else if (s.lineStyle === 'dotted') ctx.setLineDash([2 / this.zoom, 4 / this.zoom]);
+          else ctx.setLineDash([]);
+
+          ctx.beginPath();
+          if (s.type === 'line') {
+            ctx.moveTo(s.x1, s.y1);
+            ctx.lineTo(s.x2, s.y2);
+          } else if (s.type === 'rect' || s.type === 'box3d') {
+            ctx.rect(s.x, s.y, s.w, s.h);
+          } else if (s.type === 'circle' || s.type === 'cylinder3d' || s.type === 'sphere3d') {
+            ctx.arc(s.cx, s.cy, s.r, 0, Math.PI * 2);
+          }
+          ctx.stroke();
+        });
+
+        // Live preview while drawing
+        if (this.startPt) {
+          ctx.setLineDash([5 / this.zoom, 4 / this.zoom]);
+          ctx.strokeStyle = '#63bdf1';
+          ctx.lineWidth = 1.5 / this.zoom;
+          ctx.beginPath();
+          if (this.tool === 'line') {
+            ctx.moveTo(this.startPt.x, this.startPt.y);
+            ctx.lineTo(this.mouseWorld.x, this.mouseWorld.y);
+          } else if (this.tool === 'rect' || this.tool === 'box3d') {
+            ctx.rect(
+              Math.min(this.startPt.x, this.mouseWorld.x),
+              Math.min(this.startPt.y, this.mouseWorld.y),
+              Math.abs(this.mouseWorld.x - this.startPt.x),
+              Math.abs(this.mouseWorld.y - this.startPt.y)
+            );
+          } else if (this.tool === 'circle' || this.tool === 'cylinder3d' || this.tool === 'sphere3d') {
+            const r = Math.hypot(this.mouseWorld.x - this.startPt.x, this.mouseWorld.y - this.startPt.y);
+            ctx.arc(this.startPt.x, this.startPt.y, r, 0, Math.PI * 2);
+          }
+          ctx.stroke();
+        }
+
+        ctx.restore();
+      }
+
+      loop() {
+        this.draw2D();
+        if (this.renderer && this.scene && this.camera) {
+          this.renderer.render(this.scene, this.camera);
+        }
+        requestAnimationFrame(() => this.loop());
+      }
+    }
+
+    const cad = new WebCADApp();
+  </script>
+</body>
+</html>
