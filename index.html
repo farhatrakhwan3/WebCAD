@@ -57,7 +57,7 @@
     ::-webkit-scrollbar-track { background: #0f1419; }
     ::-webkit-scrollbar-thumb { background: #263240; border-radius: 3px; }
 
-    .tool-btn { transition: all 0.12s ease; }
+    .tool-btn { transition: all 0.12s ease; cursor: pointer; }
     .tool-btn:hover { background-color: #1e2732; }
     .tool-btn.active {
       background-color: rgba(99, 189, 241, 0.2);
@@ -65,7 +65,7 @@
       color: #63bdf1;
     }
 
-    .toggle-btn { transition: all 0.12s ease; }
+    .toggle-btn { transition: all 0.12s ease; cursor: pointer; }
     .toggle-btn.active {
       background-color: rgba(99, 189, 241, 0.2);
       border-color: #63bdf1;
@@ -85,6 +85,7 @@
       justify-content: center;
       gap: 4px;
       transition: all 0.12s ease;
+      cursor: pointer;
     }
     .prop-btn:hover {
       background-color: #1e2732;
@@ -149,7 +150,7 @@
 
     <!-- LEFT TOOL PALETTE -->
     <aside class="h-11 sm:h-auto w-full sm:w-12 bg-cad-ribbon border-b sm:border-b-0 sm:border-r border-cad-border flex flex-row sm:flex-col items-center px-1.5 sm:px-0 py-1 sm:py-2 gap-1 shrink-0 overflow-x-auto sm:overflow-y-auto z-20">
-      <button data-tool="select" onclick="cad.setTool('select')" class="tool-btn active border border-transparent w-8 h-8 sm:w-9 sm:h-9 rounded flex items-center justify-center shrink-0" title="Select (Esc)">
+      <button data-tool="select" onclick="cad.setTool('select')" class="tool-btn active border border-transparent w-8 h-8 sm:w-9 sm:h-9 rounded flex items-center justify-center shrink-0" title="Select & Drag (Esc)">
         <span class="material-symbols-outlined icon-sm">near_me</span>
       </button>
       <button data-tool="pan" onclick="cad.setTool('pan')" class="tool-btn border border-transparent w-8 h-8 sm:w-9 sm:h-9 rounded flex items-center justify-center shrink-0" title="Pan">
@@ -186,7 +187,7 @@
       <div id="pane-2d" class="relative flex-1 w-full md:w-auto h-1/2 md:h-full overflow-hidden border-b md:border-b-0 md:border-r border-cad-border min-h-0 min-w-0">
         <canvas id="canvas-2d" class="w-full h-full block"></canvas>
         <div class="absolute top-2 left-2 pointer-events-none text-[10px] font-mono bg-cad-ribbon/90 border border-cad-border px-2 py-0.5 rounded text-[#63bdf1]">
-          2D PLAN &bull; Click &amp; type number + Enter
+          2D PLAN &bull; Click shape to select &bull; Click &amp; type number + Enter to draw
         </div>
 
         <!-- Dynamic Numeric Input Pill -->
@@ -286,7 +287,7 @@
     </div>
 
     <div id="status-hint" class="hidden md:block text-cad-muted truncate">
-      Select a tool, click in 2D, type a number (e.g. 120), and press Enter.
+      Select tool to pick/drag shapes, or pick a draw tool, click, type a number (e.g. 120), and press Enter.
     </div>
 
     <div class="flex items-center gap-2 shrink-0">
@@ -316,6 +317,9 @@
         this.isPanning = false;
         this.panStart = { x: 0, y: 0 };
 
+        this.draggingShapeId = null;
+        this.dragOffset = { x: 0, y: 0, x2Off: 0, y2Off: 0 };
+
         this.startPt = null;
         this.mouseWorld = { x: 0, y: 0 };
         this.typedNumber = '';
@@ -332,7 +336,7 @@
         const container = document.getElementById('color-swatches');
         COLORS.forEach(hex => {
           const btn = document.createElement('button');
-          btn.className = 'w-full h-6 rounded border border-white/20 hover:scale-105 transition';
+          btn.className = 'w-full h-6 rounded border border-white/20 hover:scale-105 transition cursor-pointer';
           btn.style.backgroundColor = hex;
           btn.title = hex;
           btn.onclick = () => this.setColor(hex);
@@ -366,7 +370,6 @@
         this.meshGroup = new THREE.Group();
         this.scene.add(this.meshGroup);
 
-        // Simple 3D orbit/pan via pointer events on Three canvas
         let orbiting = false;
         let lastX = 0, lastY = 0;
         let theta = Math.PI / 4, phi = Math.PI / 3, radius = 420;
@@ -480,6 +483,7 @@
       setTool(tool) {
         this.tool = tool;
         this.startPt = null;
+        this.draggingShapeId = null;
         this.typedNumber = '';
         this.updateNumHud();
         document.querySelectorAll('[data-tool]').forEach(btn => {
@@ -492,11 +496,12 @@
         document.getElementById('btn-' + flag).classList.toggle('active', this.flags[flag]);
       }
 
-      screenToWorld(clientX, clientY) {
+      screenToWorld(clientX, clientY, snapOverride = null) {
         const rect = this.canvas.getBoundingClientRect();
         let x = (clientX - rect.left - this.pan.x) / this.zoom;
         let y = -(clientY - rect.top - this.pan.y) / this.zoom;
-        if (this.flags.snap) {
+        const shouldSnap = snapOverride !== null ? snapOverride : this.flags.snap;
+        if (shouldSnap) {
           x = Math.round(x / this.gridSize) * this.gridSize;
           y = Math.round(y / this.gridSize) * this.gridSize;
         }
@@ -512,21 +517,42 @@
       }
 
       onCanvasDown(e) {
-        const pt = this.screenToWorld(e.clientX, e.clientY);
         if (this.tool === 'pan' || e.button === 1) {
           this.isPanning = true;
           this.panStart = { x: e.clientX - this.pan.x, y: e.clientY - this.pan.y };
           return;
         }
 
+        const rawPt = this.screenToWorld(e.clientX, e.clientY, false);
+        const pt = this.screenToWorld(e.clientX, e.clientY);
+
         if (this.tool === 'select') {
-          this.selectedId = this.hitTest(pt.x, pt.y);
+          const hit = this.hitTest(rawPt.x, rawPt.y);
+          this.selectedId = hit;
           this.updateInspectorLabel();
+
+          if (hit) {
+            const s = this.getSelected();
+            this.saveHistory();
+            this.draggingShapeId = hit;
+            if (s.type === 'line') {
+              this.dragOffset = {
+                x: rawPt.x - s.x1,
+                y: rawPt.y - s.y1,
+                x2Off: rawPt.x - s.x2,
+                y2Off: rawPt.y - s.y2
+              };
+            } else if (s.x !== undefined) {
+              this.dragOffset = { x: rawPt.x - s.x, y: rawPt.y - s.y, x2Off: 0, y2Off: 0 };
+            } else if (s.cx !== undefined) {
+              this.dragOffset = { x: rawPt.x - s.cx, y: rawPt.y - s.cy, x2Off: 0, y2Off: 0 };
+            }
+          }
           return;
         }
 
         if (this.tool === 'erase') {
-          const hit = this.hitTest(pt.x, pt.y);
+          const hit = this.hitTest(rawPt.x, rawPt.y);
           if (hit) {
             this.saveHistory();
             this.shapes = this.shapes.filter(s => s.id !== hit);
@@ -551,19 +577,45 @@
       }
 
       onCanvasMove(e) {
-        const raw = this.screenToWorld(e.clientX, e.clientY);
-        this.mouseWorld = this.flags.ortho && this.startPt ? this.applyOrtho(this.startPt, raw) : raw;
+        const raw = this.screenToWorld(e.clientX, e.clientY, false);
+        const snapped = this.screenToWorld(e.clientX, e.clientY);
+        this.mouseWorld = this.flags.ortho && this.startPt ? this.applyOrtho(this.startPt, snapped) : snapped;
         document.getElementById('coord-readout').textContent =
           `X: ${this.mouseWorld.x.toFixed(1)}, Y: ${this.mouseWorld.y.toFixed(1)}`;
 
         if (this.isPanning) {
           this.pan.x = e.clientX - this.panStart.x;
           this.pan.y = e.clientY - this.panStart.y;
+          return;
+        }
+
+        if (this.draggingShapeId) {
+          const s = this.shapes.find(item => item.id === this.draggingShapeId);
+          if (s) {
+            const targetX = this.flags.snap ? Math.round(raw.x / this.gridSize) * this.gridSize : raw.x;
+            const targetY = this.flags.snap ? Math.round(raw.y / this.gridSize) * this.gridSize : raw.y;
+            if (s.type === 'line') {
+              const dx = targetX - this.dragOffset.x - s.x1;
+              const dy = targetY - this.dragOffset.y - s.y1;
+              s.x1 += dx;
+              s.y1 += dy;
+              s.x2 += dx;
+              s.y2 += dy;
+            } else if (s.x !== undefined) {
+              s.x = targetX - this.dragOffset.x;
+              s.y = targetY - this.dragOffset.y;
+            } else if (s.cx !== undefined) {
+              s.cx = targetX - this.dragOffset.x;
+              s.cy = targetY - this.dragOffset.y;
+            }
+            this.sync3D();
+          }
         }
       }
 
       onCanvasUp() {
         this.isPanning = false;
+        this.draggingShapeId = null;
       }
 
       onWheel(e) {
@@ -604,7 +656,6 @@
           }
         }
 
-        // Direct numeric input while drawing after clicking start point
         if (this.startPt && /^[0-9.]$/.test(e.key)) {
           e.preventDefault();
           this.typedNumber += e.key;
@@ -624,7 +675,6 @@
           return;
         }
 
-        // Quick tool shortcuts when not typing a number
         if (!this.startPt) {
           const map = { l: 'line', r: 'rect', c: 'circle' };
           if (map[e.key.toLowerCase()]) this.setTool(map[e.key.toLowerCase()]);
@@ -643,7 +693,10 @@
       }
 
       commitFromNumeric(p0, cursorPt, num) {
-        const angle = Math.atan2(cursorPt.y - p0.y, cursorPt.x - p0.x);
+        const angle = this.flags.ortho
+          ? (Math.abs(cursorPt.x - p0.x) >= Math.abs(cursorPt.y - p0.y) ? (cursorPt.x >= p0.x ? 0 : Math.PI) : (cursorPt.y >= p0.y ? Math.PI / 2 : -Math.PI / 2))
+          : Math.atan2(cursorPt.y - p0.y, cursorPt.x - p0.x);
+
         if (this.tool === 'line') {
           const end = {
             x: p0.x + Math.cos(angle) * num,
@@ -704,18 +757,25 @@
       }
 
       hitTest(x, y) {
+        const tol = 8 / this.zoom;
         for (let i = this.shapes.length - 1; i >= 0; i--) {
           const s = this.shapes[i];
           if (s.type === 'rect' || s.type === 'box3d') {
-            if (x >= s.x && x <= s.x + s.w && y >= s.y && y <= s.y + s.h) return s.id;
+            if (x >= s.x - tol && x <= s.x + s.w + tol && y >= s.y - tol && y <= s.y + s.h + tol) {
+              return s.id;
+            }
           } else if (s.type === 'circle' || s.type === 'cylinder3d' || s.type === 'sphere3d') {
-            if (Math.hypot(x - s.cx, y - s.cy) <= s.r + 6) return s.id;
+            if (Math.hypot(x - s.cx, y - s.cy) <= s.r + tol) {
+              return s.id;
+            }
           } else if (s.type === 'line') {
             const dx = s.x2 - s.x1, dy = s.y2 - s.y1;
             const lenSq = dx * dx + dy * dy || 1;
             const t = Math.max(0, Math.min(1, ((x - s.x1) * dx + (y - s.y1) * dy) / lenSq));
             const px = s.x1 + t * dx, py = s.y1 + t * dy;
-            if (Math.hypot(x - px, y - py) <= 8) return s.id;
+            if (Math.hypot(x - px, y - py) <= tol + 2) {
+              return s.id;
+            }
           }
         }
         return null;
@@ -730,7 +790,6 @@
         document.getElementById('sel-label').textContent = sel ? sel.type.toUpperCase() : 'None';
       }
 
-      // Inspector Actions
       saveHistory() {
         this.history.push(JSON.stringify(this.shapes));
         if (this.history.length > 40) this.history.shift();
@@ -741,6 +800,8 @@
         if (!this.history.length) return;
         this.redoStack.push(JSON.stringify(this.shapes));
         this.shapes = JSON.parse(this.history.pop());
+        if (this.selectedId && !this.getSelected()) this.selectedId = null;
+        this.updateInspectorLabel();
         this.sync3D();
       }
 
@@ -748,6 +809,7 @@
         if (!this.redoStack.length) return;
         this.history.push(JSON.stringify(this.shapes));
         this.shapes = JSON.parse(this.redoStack.pop());
+        this.updateInspectorLabel();
         this.sync3D();
       }
 
@@ -817,6 +879,7 @@
         else if (copy.cx !== undefined) { copy.cx += 20; copy.cy += 20; }
         this.shapes.push(copy);
         this.selectedId = copy.id;
+        this.updateInspectorLabel();
         this.sync3D();
       }
 
@@ -888,10 +951,12 @@
         }
 
         this.shapes.forEach(s => {
+          const isSel = s.id === this.selectedId;
           const mat = new THREE.MeshStandardMaterial({
             color: s.color || '#63bdf1',
             roughness: 0.4,
-            metalness: 0.15
+            metalness: 0.15,
+            emissive: isSel ? 0x1e3a5f : 0x000000
           });
 
           if (s.type === 'box3d' || (s.type === 'rect' && s.zHeight > 0)) {
@@ -960,7 +1025,7 @@
         this.shapes.forEach(s => {
           const isSel = s.id === this.selectedId;
           ctx.strokeStyle = isSel ? '#ffffff' : (s.color || '#63bdf1');
-          ctx.lineWidth = (s.lineWidth || 2) / this.zoom;
+          ctx.lineWidth = ((s.lineWidth || 2) + (isSel ? 1 : 0)) / this.zoom;
           if (s.lineStyle === 'dashed') ctx.setLineDash([8 / this.zoom, 5 / this.zoom]);
           else if (s.lineStyle === 'dotted') ctx.setLineDash([2 / this.zoom, 4 / this.zoom]);
           else ctx.setLineDash([]);
@@ -975,6 +1040,26 @@
             ctx.arc(s.cx, s.cy, s.r, 0, Math.PI * 2);
           }
           ctx.stroke();
+
+          // Selection highlight box
+          if (isSel) {
+            ctx.save();
+            ctx.setLineDash([4 / this.zoom, 3 / this.zoom]);
+            ctx.strokeStyle = '#63bdf1';
+            ctx.lineWidth = 1.2 / this.zoom;
+            if (s.type === 'rect' || s.type === 'box3d') {
+              ctx.strokeRect(s.x - 4, s.y - 4, s.w + 8, s.h + 8);
+            } else if (s.type === 'circle' || s.type === 'cylinder3d' || s.type === 'sphere3d') {
+              ctx.strokeRect(s.cx - s.r - 4, s.cy - s.r - 4, (s.r + 4) * 2, (s.r + 4) * 2);
+            } else if (s.type === 'line') {
+              const minX = Math.min(s.x1, s.x2) - 4;
+              const minY = Math.min(s.y1, s.y2) - 4;
+              const bw = Math.abs(s.x2 - s.x1) + 8;
+              const bh = Math.abs(s.y2 - s.y1) + 8;
+              ctx.strokeRect(minX, minY, bw, bh);
+            }
+            ctx.restore();
+          }
         });
 
         // Live preview while drawing
